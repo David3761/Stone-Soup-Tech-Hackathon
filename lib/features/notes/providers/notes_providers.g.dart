@@ -42,7 +42,7 @@ final noteFilterNotifierProvider =
 
 typedef _$NoteFilterNotifier = AutoDisposeNotifier<NoteFilter>;
 String _$noteEditorNotifierHash() =>
-    r'fc171ee0aa394b59bf5ef1a82093e5fe72e0a538';
+    r'11238bfb0d7b9db9b95a80171e213b2c953536d2';
 
 /// Copied from Dart SDK
 class _SystemHash {

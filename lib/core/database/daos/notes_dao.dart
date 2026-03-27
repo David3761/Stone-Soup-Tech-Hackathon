@@ -3,23 +3,28 @@ import 'package:drift/drift.dart';
 import '../app_database.dart';
 import '../tables/notes_table.dart';
 import '../tables/checklist_items_table.dart';
+import '../tables/note_attachments_table.dart';
 import '../../../features/notes/domain/note_type.dart';
 import '../../../features/notes/domain/note_filter.dart';
 import '../../../features/notes/domain/note.dart';
 import '../../../features/notes/domain/checklist_item.dart';
+import '../../../features/notes/domain/note_attachment.dart';
 
 part 'notes_dao.g.dart';
 
-@DriftAccessor(tables: [Notes, ChecklistItems])
+@DriftAccessor(tables: [Notes, ChecklistItems, NoteAttachments])
 class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   NotesDao(super.db);
 
+  // -------------------------------------------------------------------------
+  // Watch stream with triple LEFT JOIN
+  // -------------------------------------------------------------------------
+
   Stream<List<NoteWithItems>> watchNotesWithItems(NoteFilter filter) {
     final query = select(notes).join([
+      leftOuterJoin(checklistItems, checklistItems.noteId.equalsExp(notes.id)),
       leftOuterJoin(
-        checklistItems,
-        checklistItems.noteId.equalsExp(notes.id),
-      ),
+          noteAttachments, noteAttachments.noteId.equalsExp(notes.id)),
     ]);
 
     if (filter.searchQuery.isNotEmpty) {
@@ -53,6 +58,7 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
       OrderingTerm(expression: sortExpr, mode: orderMode),
       OrderingTerm(expression: notes.id),
       OrderingTerm(expression: checklistItems.position),
+      OrderingTerm(expression: noteAttachments.position),
     ]);
 
     return query.watch().map(_groupRows);
@@ -61,30 +67,43 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   List<NoteWithItems> _groupRows(List<TypedResult> rows) {
     final Map<int, Note> notesMap = {};
     final Map<int, List<ChecklistItem>> itemsMap = {};
+    final Map<int, List<NoteAttachment>> attachmentsMap = {};
+    // Sets for dedup (triple JOIN creates a cross product)
+    final Map<int, Set<int>> seenItemIds = {};
+    final Map<int, Set<int>> seenAttachmentIds = {};
     final List<int> order = [];
 
     for (final row in rows) {
       final note = row.readTable(notes);
       final item = row.readTableOrNull(checklistItems);
+      final attachment = row.readTableOrNull(noteAttachments);
+
       if (!notesMap.containsKey(note.id)) {
         notesMap[note.id] = note;
         itemsMap[note.id] = [];
+        attachmentsMap[note.id] = [];
+        seenItemIds[note.id] = {};
+        seenAttachmentIds[note.id] = {};
         order.add(note.id);
       }
-      if (item != null) {
+
+      if (item != null && seenItemIds[note.id]!.add(item.id)) {
         itemsMap[note.id]!.add(item);
+      }
+      if (attachment != null &&
+          seenAttachmentIds[note.id]!.add(attachment.id)) {
+        attachmentsMap[note.id]!.add(attachment);
       }
     }
 
     return order.map((id) {
       final note = notesMap[id]!;
-      final items = itemsMap[id]!;
       return NoteWithItems(
         id: note.id,
         title: note.title,
         textContent: note.textContent,
         type: NoteType.fromDb(note.type),
-        checklistItems: items
+        checklistItems: itemsMap[id]!
             .map((i) => ChecklistItemModel(
                   id: i.id,
                   noteId: i.noteId,
@@ -93,20 +112,28 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
                   position: i.position,
                 ))
             .toList(),
+        attachments: attachmentsMap[id]!
+            .map((a) => NoteAttachmentModel(
+                  id: a.id,
+                  noteId: a.noteId,
+                  filePath: a.filePath,
+                  fileName: a.fileName,
+                  position: a.position,
+                  createdAt: a.createdAt,
+                ))
+            .toList(),
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
       );
     }).toList();
   }
 
+  // -------------------------------------------------------------------------
+  // Note CRUD
+  // -------------------------------------------------------------------------
+
   Future<Note?> getNoteById(int id) =>
       (select(notes)..where((t) => t.id.equals(id))).getSingleOrNull();
-
-  Future<List<ChecklistItem>> getItemsForNote(int noteId) =>
-      (select(checklistItems)
-            ..where((t) => t.noteId.equals(noteId))
-            ..orderBy([(t) => OrderingTerm(expression: t.position)]))
-          .get();
 
   Future<int> insertNote(NotesCompanion note) => into(notes).insert(note);
 
@@ -124,12 +151,41 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
         updatedAt: Value(updatedAt),
       ));
 
+  Future<int> deleteNote(int id) =>
+      (delete(notes)..where((t) => t.id.equals(id))).go();
+
+  // -------------------------------------------------------------------------
+  // Checklist item CRUD
+  // -------------------------------------------------------------------------
+
+  Future<List<ChecklistItem>> getItemsForNote(int noteId) =>
+      (select(checklistItems)
+            ..where((t) => t.noteId.equals(noteId))
+            ..orderBy([(t) => OrderingTerm(expression: t.position)]))
+          .get();
+
   Future<int> insertChecklistItem(ChecklistItemsCompanion item) =>
       into(checklistItems).insert(item);
 
   Future<int> deleteItemsForNote(int noteId) =>
       (delete(checklistItems)..where((t) => t.noteId.equals(noteId))).go();
 
-  Future<int> deleteNote(int id) =>
-      (delete(notes)..where((t) => t.id.equals(id))).go();
+  // -------------------------------------------------------------------------
+  // Attachment CRUD
+  // -------------------------------------------------------------------------
+
+  Future<List<NoteAttachment>> getAttachmentsForNote(int noteId) =>
+      (select(noteAttachments)
+            ..where((t) => t.noteId.equals(noteId))
+            ..orderBy([(t) => OrderingTerm(expression: t.position)]))
+          .get();
+
+  Future<int> insertAttachment(NoteAttachmentsCompanion attachment) =>
+      into(noteAttachments).insert(attachment);
+
+  Future<int> deleteAttachment(int id) =>
+      (delete(noteAttachments)..where((t) => t.id.equals(id))).go();
+
+  Future<int> deleteAttachmentsForNote(int noteId) =>
+      (delete(noteAttachments)..where((t) => t.noteId.equals(noteId))).go();
 }

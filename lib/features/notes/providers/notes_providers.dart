@@ -3,6 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../data/notes_repository.dart';
 import '../domain/checklist_item.dart';
 import '../domain/note.dart';
+import '../domain/note_attachment.dart';
 import '../domain/note_filter.dart';
 import '../domain/note_type.dart';
 
@@ -53,6 +54,11 @@ class NoteEditorState {
   final NoteType type;
   final String textContent;
   final List<ChecklistItemModel> checklistItems;
+  /// All attachments currently associated with the note (saved + staged).
+  /// Staged items have id == null.
+  final List<NoteAttachmentModel> attachments;
+  /// Attachments that were removed during this edit session (saved items only).
+  final List<NoteAttachmentModel> removedAttachments;
   final bool isDirty;
   final bool isSaving;
 
@@ -62,16 +68,19 @@ class NoteEditorState {
     required this.type,
     required this.textContent,
     required this.checklistItems,
+    this.attachments = const [],
+    this.removedAttachments = const [],
     this.isDirty = false,
     this.isSaving = false,
   });
 
-  factory NoteEditorState.empty() => const NoteEditorState(
+  factory NoteEditorState.empty({NoteType type = NoteType.text}) =>
+      NoteEditorState(
         noteId: null,
         title: '',
-        type: NoteType.text,
+        type: type,
         textContent: '',
-        checklistItems: [],
+        checklistItems: const [],
       );
 
   factory NoteEditorState.fromNote(NoteWithItems note) => NoteEditorState(
@@ -80,6 +89,7 @@ class NoteEditorState {
         type: note.type,
         textContent: note.textContent ?? '',
         checklistItems: note.checklistItems,
+        attachments: note.attachments,
       );
 
   NoteEditorState copyWith({
@@ -88,6 +98,8 @@ class NoteEditorState {
     NoteType? type,
     String? textContent,
     List<ChecklistItemModel>? checklistItems,
+    List<NoteAttachmentModel>? attachments,
+    List<NoteAttachmentModel>? removedAttachments,
     bool? isDirty,
     bool? isSaving,
   }) {
@@ -97,6 +109,8 @@ class NoteEditorState {
       type: type ?? this.type,
       textContent: textContent ?? this.textContent,
       checklistItems: checklistItems ?? this.checklistItems,
+      attachments: attachments ?? this.attachments,
+      removedAttachments: removedAttachments ?? this.removedAttachments,
       isDirty: isDirty ?? this.isDirty,
       isSaving: isSaving ?? this.isSaving,
     );
@@ -206,6 +220,36 @@ class NoteEditorNotifier extends _$NoteEditorNotifier {
     });
   }
 
+  void addAttachment(NoteAttachmentModel attachment) {
+    _update((s) => s.copyWith(
+          attachments: [...s.attachments, attachment],
+          isDirty: true,
+        ));
+  }
+
+  void removeAttachment(NoteAttachmentModel attachment) {
+    _update((s) {
+      final updated = [...s.attachments]..remove(attachment);
+      final removed = attachment.id != null
+          ? [...s.removedAttachments, attachment]
+          : s.removedAttachments;
+      return s.copyWith(
+        attachments: updated,
+        removedAttachments: removed,
+        isDirty: true,
+      );
+    });
+  }
+
+  /// Deletes staged (unsaved) attachment files from disk. Call on discard.
+  Future<void> discardStagedFiles() async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+    for (final a in current.attachments) {
+      if (a.id == null) await NotesRepository.deleteFile(a.filePath);
+    }
+  }
+
   Future<int?> save() async {
     final current = state.valueOrNull;
     if (current == null) return null;
@@ -213,6 +257,9 @@ class NoteEditorNotifier extends _$NoteEditorNotifier {
     _update((s) => s.copyWith(isSaving: true));
     try {
       final repo = ref.read(notesRepositoryProvider);
+      final newAttachments =
+          current.attachments.where((a) => a.id == null).toList();
+
       if (current.noteId == null) {
         final newId = await repo.createNote(
           title: current.title,
@@ -220,8 +267,14 @@ class NoteEditorNotifier extends _$NoteEditorNotifier {
           textContent:
               current.textContent.isEmpty ? null : current.textContent,
           items: current.checklistItems,
+          newAttachments: newAttachments,
         );
-        _update((s) => s.copyWith(noteId: newId, isDirty: false, isSaving: false));
+        _update((s) => s.copyWith(
+              noteId: newId,
+              isDirty: false,
+              isSaving: false,
+              removedAttachments: [],
+            ));
         return newId;
       } else {
         await repo.updateNote(
@@ -231,8 +284,14 @@ class NoteEditorNotifier extends _$NoteEditorNotifier {
           textContent:
               current.textContent.isEmpty ? null : current.textContent,
           items: current.checklistItems,
+          newAttachments: newAttachments,
+          removedAttachments: current.removedAttachments,
         );
-        _update((s) => s.copyWith(isDirty: false, isSaving: false));
+        _update((s) => s.copyWith(
+              isDirty: false,
+              isSaving: false,
+              removedAttachments: [],
+            ));
         return current.noteId;
       }
     } catch (_) {

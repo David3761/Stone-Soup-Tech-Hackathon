@@ -4,8 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/notes_repository.dart';
 import '../../domain/note_type.dart';
 import '../../providers/notes_providers.dart';
+import '../widgets/audio_note_editor.dart';
 import '../widgets/checklist_note_editor.dart';
+import '../widgets/drawing_note_editor.dart';
+import '../widgets/photo_note_editor.dart';
 import '../widgets/text_note_editor.dart';
+import '../widgets/video_note_editor.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final int? noteId;
@@ -20,24 +24,37 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
 class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late final TextEditingController _titleController;
   bool _titleInitialized = false;
+  ProviderSubscription<AsyncValue<NoteEditorState>>? _initialTypeSub;
 
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController();
 
-    // For new notes, set initial type after first frame
-    if (widget.noteId == null && widget.initialType != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref
-            .read(noteEditorNotifierProvider(null).notifier)
-            .setType(widget.initialType!);
-      });
+    if (widget.noteId == null &&
+        widget.initialType != null &&
+        widget.initialType != NoteType.text) {
+      // listenManual fires as soon as the provider has data (even if it loads
+      // before the first frame), avoiding the whenData no-op on AsyncLoading.
+      _initialTypeSub = ref.listenManual(
+        noteEditorNotifierProvider(null),
+        (prev, next) {
+          if (next.hasValue && prev?.hasValue != true) {
+            _initialTypeSub?.close();
+            _initialTypeSub = null;
+            ref
+                .read(noteEditorNotifierProvider(null).notifier)
+                .setType(widget.initialType!);
+          }
+        },
+        fireImmediately: true,
+      );
     }
   }
 
   @override
   void dispose() {
+    _initialTypeSub?.close();
     _titleController.dispose();
     super.dispose();
   }
@@ -70,7 +87,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       ),
     );
 
-    if (result == 'save' && mounted) {
+    if (result == 'discard') {
+      if (!mounted) return false;
+      await ref
+          .read(noteEditorNotifierProvider(widget.noteId).notifier)
+          .discardStagedFiles();
+    } else if (result == 'save' && mounted) {
       await ref
           .read(noteEditorNotifierProvider(widget.noteId).notifier)
           .save();
@@ -114,12 +136,61 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
   }
 
+  /// For text/checklist notes, shows a SegmentedButton type toggle.
+  /// For media notes, shows a read-only type label chip.
+  Widget _buildAppBarTitle(NoteEditorState s) {
+    if (!s.type.isMedia) {
+      return SegmentedButton<NoteType>(
+        segments: const [
+          ButtonSegment(
+            value: NoteType.text,
+            icon: Icon(Icons.text_fields_rounded),
+            label: Text('Text'),
+          ),
+          ButtonSegment(
+            value: NoteType.checklist,
+            icon: Icon(Icons.checklist_rounded),
+            label: Text('List'),
+          ),
+        ],
+        selected: {s.type},
+        onSelectionChanged: (val) => ref
+            .read(noteEditorNotifierProvider(widget.noteId).notifier)
+            .setType(val.first),
+        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+      );
+    }
+
+    final (icon, label) = switch (s.type) {
+      NoteType.audio => (Icons.mic_rounded, 'Audio'),
+      NoteType.video => (Icons.videocam_rounded, 'Video'),
+      NoteType.photo => (Icons.photo_camera_rounded, 'Photo'),
+      NoteType.drawing => (Icons.draw_rounded, 'Drawing'),
+      _ => (Icons.note, ''),
+    };
+    return Chip(
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Widget _buildEditor(NoteEditorState s) {
+    return switch (s.type) {
+      NoteType.text => TextNoteEditor(noteId: widget.noteId),
+      NoteType.checklist => ChecklistNoteEditor(noteId: widget.noteId),
+      NoteType.audio => AudioNoteEditor(noteId: widget.noteId),
+      NoteType.video => VideoNoteEditor(noteId: widget.noteId),
+      NoteType.photo => PhotoNoteEditor(noteId: widget.noteId),
+      NoteType.drawing => DrawingNoteEditor(noteId: widget.noteId),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final editorAsync =
         ref.watch(noteEditorNotifierProvider(widget.noteId));
 
-    // Sync title controller once when data first loads
     editorAsync.whenData((s) {
       if (!_titleInitialized) {
         _titleInitialized = true;
@@ -146,26 +217,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           title: editorAsync.when(
             loading: () => const SizedBox.shrink(),
             error: (e, st) => const Text('Error'),
-            data: (s) => SegmentedButton<NoteType>(
-              segments: const [
-                ButtonSegment(
-                  value: NoteType.text,
-                  icon: Icon(Icons.text_fields_rounded),
-                  label: Text('Text'),
-                ),
-                ButtonSegment(
-                  value: NoteType.checklist,
-                  icon: Icon(Icons.checklist_rounded),
-                  label: Text('List'),
-                ),
-              ],
-              selected: {s.type},
-              onSelectionChanged: (val) => ref
-                  .read(noteEditorNotifierProvider(widget.noteId).notifier)
-                  .setType(val.first),
-              style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact),
-            ),
+            data: _buildAppBarTitle,
           ),
           actions: [
             if (widget.noteId != null)
@@ -213,11 +265,37 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       .setTitle(v),
                 ),
               ),
+              // Description field for media note types
+              if (s.type.isMedia) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Description (optional)',
+                        border: InputBorder.none,
+                      ),
+                      maxLines: null,
+                      controller: TextEditingController(text: s.textContent)
+                        ..selection = TextSelection.collapsed(
+                            offset: s.textContent.length),
+                      onChanged: (v) => ref
+                          .read(noteEditorNotifierProvider(widget.noteId)
+                              .notifier)
+                          .setTextContent(v),
+                    ),
+                  ),
+                ),
+              ],
               const Divider(height: 1),
               Expanded(
-                child: s.type == NoteType.text
-                    ? TextNoteEditor(noteId: widget.noteId)
-                    : ChecklistNoteEditor(noteId: widget.noteId),
+                child: s.type.isMedia
+                    ? SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildEditor(s),
+                      )
+                    : _buildEditor(s),
               ),
             ],
           ),

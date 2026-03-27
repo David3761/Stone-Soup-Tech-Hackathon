@@ -65,6 +65,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _openNote(context, type: NoteType.checklist);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.mic_rounded),
+              title: const Text('Audio recording'),
+              onTap: () {
+                Navigator.pop(context);
+                _openNote(context, type: NoteType.audio);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_rounded),
+              title: const Text('Video recording'),
+              onTap: () {
+                Navigator.pop(context);
+                _openNote(context, type: NoteType.video);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Photos'),
+              onTap: () {
+                Navigator.pop(context);
+                _openNote(context, type: NoteType.photo);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.draw_rounded),
+              title: const Text('Drawing'),
+              onTap: () {
+                Navigator.pop(context);
+                _openNote(context, type: NoteType.drawing);
+              },
+            ),
           ],
         ),
       ),

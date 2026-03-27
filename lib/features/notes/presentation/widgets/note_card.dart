@@ -50,9 +50,7 @@ class NoteCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Icon(
-                    note.type == NoteType.text
-                        ? Icons.text_fields_rounded
-                        : Icons.checklist_rounded,
+                    _typeIcon(note.type),
                     size: 14,
                     color: colorScheme.outline,
                   ),
@@ -76,6 +74,15 @@ class NoteCard extends StatelessWidget {
     );
   }
 
+  IconData _typeIcon(NoteType type) => switch (type) {
+        NoteType.text => Icons.text_fields_rounded,
+        NoteType.checklist => Icons.checklist_rounded,
+        NoteType.audio => Icons.mic_rounded,
+        NoteType.video => Icons.videocam_rounded,
+        NoteType.photo => Icons.photo_camera_rounded,
+        NoteType.drawing => Icons.draw_rounded,
+      };
+
   Widget _buildPreview(BuildContext context) {
     final theme = Theme.of(context);
     final previewStyle = theme.textTheme.bodySmall?.copyWith(
@@ -92,52 +99,61 @@ class NoteCard extends StatelessWidget {
       );
     }
 
-    // Checklist preview
-    final items = note.checklistItems;
-    if (items.isEmpty) {
-      return Text('Empty list', style: previewStyle);
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final item in items.take(4))
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Row(
-              children: [
-                Icon(
-                  item.isChecked
-                      ? Icons.check_box_rounded
-                      : Icons.check_box_outline_blank_rounded,
-                  size: 13,
-                  color: item.isChecked
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    item.text,
-                    style: previewStyle?.copyWith(
-                      decoration: item.isChecked
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+    if (note.type == NoteType.checklist) {
+      final items = note.checklistItems;
+      if (items.isEmpty) {
+        return Text('Empty list', style: previewStyle);
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final item in items.take(4))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    item.isChecked
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 13,
+                    color: item.isChecked
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outline,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      item.text,
+                      style: previewStyle?.copyWith(
+                        decoration: item.isChecked
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        if (items.length > 4)
-          Text(
-            '+${items.length - 4} more',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
+          if (items.length > 4)
+            Text(
+              '+${items.length - 4} more',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
-          ),
-      ],
+        ],
+      );
+    }
+
+    // Media note preview
+    return Text(
+      note.previewText,
+      style: previewStyle,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
     );
   }
 

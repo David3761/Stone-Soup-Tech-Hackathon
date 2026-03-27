@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Required to record audio notes.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Required to capture photos and videos for notes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Required to attach photos and videos from your library.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Required to save photos and videos to your library.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

@@ -8,6 +8,24 @@ import '../../providers/notes_providers.dart';
 class FilterSortSheet extends ConsumerWidget {
   const FilterSortSheet({super.key});
 
+  IconData _typeIcon(NoteType type) => switch (type) {
+        NoteType.text => Icons.text_fields_rounded,
+        NoteType.checklist => Icons.checklist_rounded,
+        NoteType.audio => Icons.mic_rounded,
+        NoteType.video => Icons.videocam_rounded,
+        NoteType.photo => Icons.photo_camera_rounded,
+        NoteType.drawing => Icons.draw_rounded,
+      };
+
+  String _typeLabel(NoteType type) => switch (type) {
+        NoteType.text => 'Text',
+        NoteType.checklist => 'Checklist',
+        NoteType.audio => 'Audio',
+        NoteType.video => 'Video',
+        NoteType.photo => 'Photo',
+        NoteType.drawing => 'Drawing',
+      };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final filter = ref.watch(noteFilterNotifierProvider);
@@ -41,26 +59,27 @@ class FilterSortSheet extends ConsumerWidget {
             const SizedBox(height: 4),
             Text('Type', style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
-            SegmentedButton<NoteType?>(
-              segments: const [
-                ButtonSegment(value: null, label: Text('All')),
-                ButtonSegment(
-                  value: NoteType.text,
-                  label: Text('Text'),
-                  icon: Icon(Icons.text_fields_rounded),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                FilterChip(
+                  label: const Text('All'),
+                  selected: filter.typeFilter == null,
+                  onSelected: (_) => notifier.setTypeFilter(null),
+                  visualDensity: VisualDensity.compact,
                 ),
-                ButtonSegment(
-                  value: NoteType.checklist,
-                  label: Text('Checklist'),
-                  icon: Icon(Icons.checklist_rounded),
-                ),
+                for (final type in NoteType.values)
+                  FilterChip(
+                    avatar: Icon(_typeIcon(type), size: 16),
+                    label: Text(_typeLabel(type)),
+                    selected: filter.typeFilter == type,
+                    onSelected: (_) => notifier.setTypeFilter(
+                      filter.typeFilter == type ? null : type,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
               ],
-              selected: {filter.typeFilter},
-              onSelectionChanged: (val) =>
-                  notifier.setTypeFilter(val.first),
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-              ),
             ),
             const SizedBox(height: 16),
             Text('Sort by', style: theme.textTheme.labelLarge),
